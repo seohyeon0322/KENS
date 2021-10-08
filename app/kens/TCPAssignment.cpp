@@ -14,6 +14,7 @@
 #include <cerrno>
 
 namespace E {
+  
 
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
