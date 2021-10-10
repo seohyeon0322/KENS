@@ -102,11 +102,11 @@ void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int ){
 
 }
 
-void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int , int * , int){
+void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int , void * , int){
 
 }
 
-void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int, int * , int ){
+void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int, void * , int ){
 
 }
 
