@@ -14,7 +14,7 @@
 #include <cerrno>
 
 namespace E {
-  
+
 
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
@@ -23,76 +23,117 @@ TCPAssignment::TCPAssignment(Host &host)
 
 TCPAssignment::~TCPAssignment() {}
 
-void TCPAssignment::initialize() {}
+void TCPAssignment::initialize() {} // 1
 
-void TCPAssignment::finalize() {}
+void TCPAssignment::finalize() {} // 2
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
 
-  // Remove below
-  (void)syscallUUID;
-  (void)pid;
-
   switch (param.syscallNumber) {
   case SOCKET:
-    // this->syscall_socket(syscallUUID, pid, param.param1_int,
-    // param.param2_int, param.param3_int);
+    this->syscall_socket(syscallUUID, pid, param.param1_int,
+    param.param2_int, param.param3_int);
     break;
   case CLOSE:
-    // this->syscall_close(syscallUUID, pid, param.param1_int);
+    this->syscall_close(syscallUUID, pid, param.param1_int);
     break;
   case READ:
-    // this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr,
-    // param.param3_int);
+    this->syscall_read(syscallUUID, pid, param.param1_int, param.param2_ptr,
+    param.param3_int);
     break;
   case WRITE:
-    // this->syscall_write(syscallUUID, pid, param.param1_int, param.param2_ptr,
-    // param.param3_int);
+    this->syscall_write(syscallUUID, pid, param.param1_int, param.parm2_ptr,
+    param.param3_int);
     break;
   case CONNECT:
-    // this->syscall_connect(syscallUUID, pid, param.param1_int,
-    //		static_cast<struct sockaddr*>(param.param2_ptr),
-    //(socklen_t)param.param3_int);
+    this->syscall_connect(syscallUUID, pid, param.param1_int,
+    		static_cast<struct sockaddr*>(param.param2_ptr),
+    (socklen_t)param.param3_int);
     break;
   case LISTEN:
-    // this->syscall_listen(syscallUUID, pid, param.param1_int,
-    // param.param2_int);
+    this->syscall_listen(syscallUUID, pid, param.param1_int,
+    param.param2_int);
     break;
   case ACCEPT:
-    // this->syscall_accept(syscallUUID, pid, param.param1_int,
-    //		static_cast<struct sockaddr*>(param.param2_ptr),
-    //		static_cast<socklen_t*>(param.param3_ptr));
+    this->syscall_accept(syscallUUID, pid, param.param1_int,
+    		static_cast<struct sockaddr*>(param.param2_ptr),
+    		static_cast<socklen_t*>(param.param3_ptr));
     break;
   case BIND:
-    // this->syscall_bind(syscallUUID, pid, param.param1_int,
-    //		static_cast<struct sockaddr *>(param.param2_ptr),
-    //		(socklen_t) param.param3_int);
+    this->syscall_bind(syscallUUID, pid, param.param1_int,
+    		static_cast<struct sockaddr *>(param.param2_ptr),
+    		(socklen_t) param.param3_int);
     break;
   case GETSOCKNAME:
-    // this->syscall_getsockname(syscallUUID, pid, param.param1_int,
-    //		static_cast<struct sockaddr *>(param.param2_ptr),
-    //		static_cast<socklen_t*>(param.param3_ptr));
+    this->syscall_getsockname(syscallUUID, pid, param.param1_int,
+    		static_cast<struct sockaddr *>(param.param2_ptr),
+    		static_cast<socklen_t*>(param.param3_ptr));
     break;
   case GETPEERNAME:
-    // this->syscall_getpeername(syscallUUID, pid, param.param1_int,
-    //		static_cast<struct sockaddr *>(param.param2_ptr),
-    //		static_cast<socklen_t*>(param.param3_ptr));
+    this->syscall_getpeername(syscallUUID, pid, param.param1_int,
+    		static_cast<struct sockaddr *>(param.param2_ptr),
+    		static_cast<socklen_t*>(param.param3_ptr));
     break;
   default:
     assert(0);
   }
-}
+} // 3
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
   (void)fromModule;
   (void)packet;
-}
+} // 4
 
 void TCPAssignment::timerCallback(std::any payload) {
   // Remove below
   (void)payload;
+} // 5
+
+
+// SystemCallback
+
+void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int , int , int ){
+
 }
+
+void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int ){
+
+}
+
+void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int , int * , int){
+
+}
+
+void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int, int * , int ){
+
+}
+
+void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, struct sockaddr*, socklen_t ){
+
+}
+
+void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int , int ){
+
+}
+
+void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int , struct sockaddr * , socklen_t *){
+
+}
+
+void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int, struct sockaddr *, socklen_t ){
+
+}
+
+void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, struct sockaddr * , socklen_t *){
+
+}
+
+void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int , struct sockaddr *, socklen_t *){
+
+}
+
+
 
 } // namespace E
