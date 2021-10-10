@@ -15,6 +15,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <unordered_map>
 
 namespace E {
 
@@ -47,8 +48,31 @@ protected:
   virtual void systemCallback(UUID syscallUUID, int pid,
                               const SystemCallParameter &param) final;
   virtual void packetArrived(std::string fromModule, Packet &&packet) final;
+
+  struct socket{
+      int domain;
+      int protocol;
+      sa_family_t sin_family;
+      in_port_t port;
+      in_addr_t ipaddr;
+      sockaddr* addr;
+      int bind = 0;
+
+  };
+
+  struct PFDtable{
+    int pid;
+    std :: unordered_map<int, socket *> fdmap;
+    std:: set<std:: pair<in_port_t, in_addr_t>> portippair;
+  };
+
+  std:: unordered_map<int, PFDtable *> pfdmap;
+
+  std:: unordered_map<in_port_t, int> portmap; // port to pid
 };
 
+//TODO: struct로 할지 class로 할지 고민해보기;
+//socket datastructure;
 class TCPAssignmentProvider {
 private:
   TCPAssignmentProvider() {}
