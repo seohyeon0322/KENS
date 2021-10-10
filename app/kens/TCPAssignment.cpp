@@ -86,8 +86,11 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
-  (void)fromModule;
-  (void)packet;
+  packet;
+
+
+
+
 } // TODO 3
 
 void TCPAssignment::timerCallback(std::any payload) {
@@ -121,9 +124,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int ty
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int sockfd){
-
-  // if (portlist.find(pfdmap[pid]->fdmap[sockfd]->port)!=portlist.end())
-  //   portlist.erase(portlist.find(pfdmap[pid]->fdmap[sockfd]->port));
+  this->portmap.erase(this->pfdmap[pid]->fdmap[sockfd]->port);
   this->removeFileDescriptor(pid,sockfd);
   this->returnSystemCall(syscallUUID, 0);
 }
@@ -154,7 +155,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct socka
       socket *sock;
       in_port_t port;
       in_addr_t ipaddr;
-      
+
       if(this->pfdmap.find(pid) == this->pfdmap.end()) //pid 없으면 error
         this->returnSystemCall(syscallUUID, -1);
 
@@ -162,33 +163,60 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct socka
 
       if(pfd->fdmap.find(fd) == pfd->fdmap.end()) //fd 없으면 error
         this->returnSystemCall(syscallUUID, -1);
-      
+
       sock = pfd->fdmap[fd]; 
 
-      if(sock->bind == 1)
+      if(sock->bind == 1) // socket already bound -> error
         this->returnSystemCall(syscallUUID, -1);
-
 
       sock->sin_family = AF_INET;
       memcpy(&port, addr->sa_data, 2);
       memcpy(&ipaddr, addr->sa_data+2, 4);
 
+      if(this -> portmap.find(port) != this -> portmap.end()){ // port가 이미 쓰이는지
+        if(this->portmap[port] != pid) // 다른 process에서 이미 쓰이는 port -> error
+          this -> returnSystemCall(syscallUUID, -1);
+        if(((this->pfdmap[pid])->portippair).find({port, ipaddr}) != (this->pfdmap[pid])->portippair.end()) // 같은 process 같은 (ip, port) -> error
+          this -> returnSystemCall(syscallUUID, -1);
+        if(((this->pfdmap[pid])->portippair).find({port, INADDR_ANY}) != (this->pfdmap[pid])->portippair.end()) // 같은 process 같은 (ip, port) -> error
+          this -> returnSystemCall(syscallUUID, -1);
+        if((this -> portmap[port] == pid) && (ipaddr == INADDR_ANY))
+          this -> returnSystemCall(syscallUUID, -1);
+        // (ip, port) 들어오고 (ANY, port) 들어오는 경우도 고려해줘야 하지 않나?
+      }
 
       sock->port = port;
       sock->ipaddr = ipaddr;
 
-
       sock->addr = addr;
       sock->bind = 1;
+
+      this->pfdmap[pid]->portippair.insert({port, ipaddr});
+      this->portmap.insert({port, pid});
+
       this->returnSystemCall(syscallUUID, 0);
       
-
-
-
+    
 }
 
 void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
-
+      if(pfdmap.find(pid) == pfdmap.end()) //pid 없는 경우
+        this -> returnSystemCall(syscallUUID, -1);
+      
+      if((pfdmap[pid] -> fdmap).find(fd) == (pfdmap[pid] -> fdmap).end()) // fd 없는 경우
+        this -> returnSystemCall(syscallUUID, -1);
+      
+      sockaddr* getaddr = pfdmap[pid] -> fdmap[fd] -> addr; 
+      addr->sa_family = AF_INET;
+      memcpy(&addr->sa_data, getaddr->sa_data, 14);
+      addrlen = (socklen_t *)sizeof(* addr);
+      // // size_t getaddrlen = sizeof(getaddr);
+      // addr = getaddr;
+      // *addrlen = (socklen_t)sizeof(*addr);
+      // // memcpy(&addr, getaddr, getaddrlen);
+      // // memcpy(&addrlen, (socklen_t*)getaddrlen, sizeof(getaddrlen));
+      // // addrlen = (socklen_t*) getaddrlen;
+      this -> returnSystemCall(syscallUUID, 0);
 }
 
 void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){

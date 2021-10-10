@@ -67,9 +67,8 @@ protected:
   };
 
   std:: unordered_map<int, PFDtable *> pfdmap;
- 
-  std:: set<in_port_t> portlist;
 
+  std:: unordered_map<in_port_t, int> portmap; // port to pid
 };
 
 //TODO: struct로 할지 class로 할지 고민해보기;
