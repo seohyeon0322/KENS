@@ -94,43 +94,43 @@ void TCPAssignment::timerCallback(std::any payload) {
 
 // SystemCallback
 
-void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int , int , int ){
+void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int type, int protocol){
 
 }
 
-void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int ){
+void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int sockfd){
 
 }
 
-void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int , void * , int){
+void TCPAssignment::syscall_read(UUID syscallUUID, int pid, int fd, void *buf, int count){
 
 }
 
-void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int, void * , int ){
+void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, void *buf, int count){
 
 }
 
-void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, struct sockaddr*, socklen_t ){
+void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct sockaddr* addr, socklen_t addrlen){
 
 }
 
-void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int , int ){
+void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog){
 
 }
 
-void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int , struct sockaddr * , socklen_t *){
+void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
 
 }
 
-void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int, struct sockaddr *, socklen_t ){
+void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t addrlen){
 
 }
 
-void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, struct sockaddr * , socklen_t *){
+void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
 
 }
 
-void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int , struct sockaddr *, socklen_t *){
+void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
 
 }
 

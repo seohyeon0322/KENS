@@ -30,6 +30,18 @@ public:
   virtual void initialize();
   virtual void finalize();
   virtual ~TCPAssignment();
+  // add
+  virtual void syscall_socket(UUID syscallUUID, int pid, int domain, int type, int protocol);
+  virtual void syscall_close(UUID syscallUUID, int pid, int sockfd);
+  virtual void syscall_read(UUID syscallUUID, int pid, int fd, void *buf, int count);
+  virtual void syscall_write(UUID syscallUUID, int pid, int fd, void *buf, int count);
+  virtual void syscall_connect(UUID syscallUUID, int pid, int fd, struct sockaddr* addr, socklen_t addrlen);
+  virtual void syscall_listen(UUID syscallUUID, int pid, int fd, int backlog);
+  virtual void syscall_accept(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
+  virtual void syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t addrlen);
+  virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
+  virtual void syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
+
 
 protected:
   virtual void systemCallback(UUID syscallUUID, int pid,
