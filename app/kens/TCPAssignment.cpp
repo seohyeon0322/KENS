@@ -86,10 +86,20 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
-  packet;
+  uint32_t srcip, destip, seqnum, acknum;
+  uint16_t srcport, destport, flowcontrol, checksum;
 
+  int ip_header = 14;
+  int tcp_header = ip_header + 12;
 
-
+  packet.readData(ip_header, &srcip,4);
+  packet.readData(ip_header + 4, &destip, 4);
+  packet.readData(tcp_header, &srcport, 2);
+  packet.readData(tcp_header+2, &destport, 2);
+  packet.readData(tcp_header+4, &seqnum, 4);
+  packet.readData(tcp_header+8, &acknum, 4);
+  packet.readData(tcp_header+32, &checksum, 2);
+//TODO: flag 어떻게 하지 ? 46byte+ headlen 4+ not used 6 + flags 6; 
 
 } // TODO 3
 
@@ -182,7 +192,7 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct socka
           this -> returnSystemCall(syscallUUID, -1);
         if((this -> portmap[port] == pid) && (ipaddr == INADDR_ANY))
           this -> returnSystemCall(syscallUUID, -1);
-        // (ip, port) 들어오고 (ANY, port) 들어오는 경우도 고려해줘야 하지 않나?
+        // TODO: (ip, port) 들어오고 (ANY, port) 들어오는 경우도 고려해줘야 하지 않나?
       }
 
       sock->port = port;
@@ -210,19 +220,12 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struc
       addr->sa_family = AF_INET;
       memcpy(&addr->sa_data, getaddr->sa_data, 14);
       addrlen = (socklen_t *)sizeof(* addr);
-      // // size_t getaddrlen = sizeof(getaddr);
-      // addr = getaddr;
-      // *addrlen = (socklen_t)sizeof(*addr);
-      // // memcpy(&addr, getaddr, getaddrlen);
-      // // memcpy(&addrlen, (socklen_t*)getaddrlen, sizeof(getaddrlen));
-      // // addrlen = (socklen_t*) getaddrlen;
+
       this -> returnSystemCall(syscallUUID, 0);
 }
 
 void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
 
 }
-
-
 
 } // namespace E
