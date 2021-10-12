@@ -19,7 +19,7 @@ namespace E {
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
       SystemCallInterface(AF_INET, IPPROTO_TCP, host),
-      TimerModule("TCP", host) {}
+      TimerModule("TCP", host){}
 
 TCPAssignment::~TCPAssignment() {}
 
@@ -87,7 +87,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
   uint32_t srcip, destip, seqnum, acknum;
-  uint16_t srcport, destport, flowcontrol, checksum;
+  uint16_t srcport, destport, checksum;
 
   int ip_header = 14;
   int tcp_header = ip_header + 12;
@@ -101,12 +101,13 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   packet.readData(tcp_header+32, &checksum, 2);
 //TODO: flag 어떻게 하지 ? 46byte+ headlen 4+ not used 6 + flags 6; 
 
+
 } // TODO 3
 
 void TCPAssignment::timerCallback(std::any payload) {
   // Remove below
   (void)payload;
-} // TODO 4
+} // TODO 4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
 
 
 // SystemCallback - TODO 5
@@ -134,7 +135,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int ty
 }
 
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int sockfd){
-  this->portmap.erase(this->pfdmap[pid]->fdmap[sockfd]->port);
+  this->portmap.erase(this->pfdmap[pid]->fdmap[sockfd]->src_port);
   this->removeFileDescriptor(pid,sockfd);
   this->returnSystemCall(syscallUUID, 0);
 }
@@ -195,10 +196,10 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct socka
         // TODO: (ip, port) 들어오고 (ANY, port) 들어오는 경우도 고려해줘야 하지 않나?
       }
 
-      sock->port = port;
-      sock->ipaddr = ipaddr;
+      sock->src_port = port;
+      sock->src_ipaddr = ipaddr;
 
-      sock->addr = addr;
+      sock->src_addr = addr;
       sock->bind = 1;
 
       this->pfdmap[pid]->portippair.insert({port, ipaddr});
@@ -216,7 +217,7 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struc
       if((pfdmap[pid] -> fdmap).find(fd) == (pfdmap[pid] -> fdmap).end()) // fd 없는 경우
         this -> returnSystemCall(syscallUUID, -1);
       
-      sockaddr* getaddr = pfdmap[pid] -> fdmap[fd] -> addr; 
+      sockaddr* getaddr = pfdmap[pid] -> fdmap[fd] -> src_addr; 
       addr->sa_family = AF_INET;
       memcpy(&addr->sa_data, getaddr->sa_data, 14);
       addrlen = (socklen_t *)sizeof(* addr);
