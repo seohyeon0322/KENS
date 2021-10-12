@@ -16,6 +16,15 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <unordered_map>
+#include <queue>
+#include <tuple>
+
+#define CLOSEDSOCK 1 
+#define LISTENSOCK 2
+#define SYN_SENT 3
+#define SYN_RCVD 4
+#define ESTABLISHED 5
+#define CLOSED_WAIT 6
 
 namespace E {
 
@@ -49,18 +58,23 @@ protected:
                               const SystemCallParameter &param) final;
   virtual void packetArrived(std::string fromModule, Packet &&packet) final;
 
-  struct socket{
+struct socket{
+      UUID SyscallUUID;
       int domain;
       int protocol;
       sa_family_t sin_family;
-      in_port_t port;
-      in_addr_t ipaddr;
-      sockaddr* addr;
+      in_port_t src_port;
+      in_addr_t src_ipaddr;
+      in_port_t dest_port;
+      in_addr_t dest_ipaddr;
+      sockaddr* src_addr;
+      sockaddr* dest_addr;
       int bind = 0;
-
+      int state = 0;
+      //TODO: state = 0 for debugging;
   };
 
-  struct PFDtable{
+ struct PFDtable{
     int pid;
     std :: unordered_map<int, socket *> fdmap;
     std:: set<std:: pair<in_port_t, in_addr_t>> portippair;
@@ -69,6 +83,15 @@ protected:
   std:: unordered_map<int, PFDtable *> pfdmap;
 
   std:: unordered_map<in_port_t, int> portmap; // port to pid
+
+  std:: queue<struct socket> pending_queue;
+
+  std:: queue<struct socket> accepted_queue;
+
+  typedef std::tuple <in_port_t,in_addr_t,in_port_t,in_addr_t> sockaddrinfo;
+  
+  std:: unordered_map<sockaddrinfo, struct socket> clientfd_map; //key: (srcport, srcip, destport, destip)
+  std:: unordered_map<sockaddrinfo, struct socket> connfd_map;
 };
 
 //TODO: struct로 할지 class로 할지 고민해보기;

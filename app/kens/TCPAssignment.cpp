@@ -87,7 +87,7 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   // Remove below
   uint32_t srcip, destip, seqnum, acknum;
-  uint16_t srcport, destport, checksum;
+  uint16_t srcport, destport, flowcontrol, checksum;
 
   int ip_header = 14;
   int tcp_header = ip_header + 12;
