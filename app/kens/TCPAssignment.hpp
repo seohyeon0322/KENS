@@ -19,12 +19,17 @@
 #include <queue>
 #include <tuple>
 
-#define CLOSEDSOCK 1 
-#define LISTENSOCK 2
-#define SYN_SENT 3
-#define SYN_RCVD 4
-#define ESTABLISHED 5
-#define CLOSED_WAIT 6
+#define CLOSEDSOCK 111 
+#define LISTENSOCK 112
+#define SYN_SENT 113
+#define SYN_RCVD 114
+#define ESTABLISHED 115
+#define CLOSED_WAIT 116
+
+#define SYN 2
+#define SYNACK 18
+#define ACK 16
+#define FIN 1
 
 namespace E {
 
@@ -51,47 +56,46 @@ public:
   virtual void syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t addrlen);
   virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
   virtual void syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
-
+  virtual int packetflag(uint8_t flag);
 
 protected:
   virtual void systemCallback(UUID syscallUUID, int pid,
                               const SystemCallParameter &param) final;
   virtual void packetArrived(std::string fromModule, Packet &&packet) final;
 
-struct socket{
+struct socket{ // 1) socket information
       UUID SyscallUUID;
       int domain;
       int protocol;
       sa_family_t sin_family;
-      in_port_t src_port;
-      in_addr_t src_ipaddr;
-      in_port_t dest_port;
-      in_addr_t dest_ipaddr;
+      uint16_t src_port;
+      uint32_t src_ipaddr;
+      uint16_t dest_port;
+      uint32_t dest_ipaddr;
       sockaddr* src_addr;
-      sockaddr* dest_addr;
       int bind = 0;
       int state = 0;
       //TODO: state = 0 for debugging;
   };
 
- struct PFDtable{
+ struct PFDtable{ // 2) pid, fd->socket, (port, ip)
     int pid;
     std :: unordered_map<int, socket *> fdmap;
-    std:: set<std:: pair<in_port_t, in_addr_t>> portippair;
+    std:: set<std:: pair<uint16_t, uint32_t>> portippair;
   };
 
-  std:: unordered_map<int, PFDtable *> pfdmap;
+  std:: unordered_map<int, PFDtable *> pfdmap; // 3) pid -> PFDtable
 
-  std:: unordered_map<in_port_t, int> portmap; // port to pid
+  std:: unordered_map<uint16_t, int> portmap; // 4) port to pid
 
-  std:: queue<struct socket> pending_queue;
+  typedef std::tuple <uint16_t,uint32_t,uint16_t,uint32_t> sockaddrinfo; // 5) (srcport, srcip, destport, destip)
 
-  std:: queue<struct socket> accepted_queue;
+  std:: queue<sockaddrinfo> pending_queue; // 6) socket queue
 
-  typedef std::tuple <in_port_t,in_addr_t,in_port_t,in_addr_t> sockaddrinfo;
+  std:: queue<struct socket> accepted_queue; // 7) socket queue(accepted)
   
-  std:: unordered_map<sockaddrinfo, struct socket> clientfd_map; //key: (srcport, srcip, destport, destip)
-  std:: unordered_map<sockaddrinfo, struct socket> connfd_map;
+  std:: unordered_map<sockaddrinfo, struct socket> clientfd_map; // 8) key: (srcport, srcip, destport, destip)
+  std:: unordered_map<sockaddrinfo, struct socket> connfd_map; // 9) 
 };
 
 //TODO: struct로 할지 class로 할지 고민해보기;
