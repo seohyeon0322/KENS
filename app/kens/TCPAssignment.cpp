@@ -146,7 +146,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
       sockaddrinfo clientfd_info = std::make_tuple(destport, destip, srcport, srcip);
       if(this -> clientfd_map.find(clientfd_info) != this-> clientfd_map.end())
         socket sock = clientfd_map[clientfd_info];
-
       // ACK 보내기
       memcpy(&acknum, &seqnum, 4);
       acknum++; // acknum = seqnum + 1

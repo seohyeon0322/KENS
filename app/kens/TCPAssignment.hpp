@@ -19,18 +19,6 @@
 #include <queue>
 #include <tuple>
 
-#define CLOSEDSOCK 111 
-#define LISTENSOCK 112
-#define SYN_SENT 113
-#define SYN_RCVD 114
-#define ESTABLISHED 115
-#define CLOSED_WAIT 116
-
-#define SYN 2
-#define SYNACK 18
-#define ACK 16
-#define FIN 1
-
 namespace E {
 
 class TCPAssignment : public HostModule,
