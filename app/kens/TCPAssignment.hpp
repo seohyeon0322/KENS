@@ -19,6 +19,7 @@
 #include <queue>
 #include <tuple>
 
+
 namespace E {
 
 class TCPAssignment : public HostModule,
@@ -68,22 +69,23 @@ struct socket{ // 1) socket information
 
  struct PFDtable{ // 2) pid, fd->socket, (port, ip)
     int pid;
-    std :: unordered_map<int, socket *> fdmap;
+    std :: unordered_map<int, struct socket *> fdmap;
     std:: set<std:: pair<uint16_t, uint32_t>> portippair;
   };
 
-  std:: unordered_map<int, PFDtable *> pfdmap; // 3) pid -> PFDtable
 
-  std:: unordered_map<uint16_t, int> portmap; // 4) port to pid
+    std:: unordered_map<int, struct PFDtable *> pfdmap; // 3) pid -> PFDtable
 
-  typedef std::tuple <uint16_t,uint32_t,uint16_t,uint32_t> sockaddrinfo; // 5) (srcport, srcip, destport, destip)
+    std:: unordered_map<uint16_t, int> portmap; // 4) port to pid
 
-  std:: queue<sockaddrinfo> pending_queue; // 6) socket queue
+    typedef std::tuple<uint16_t,uint32_t,uint16_t,uint32_t> sockaddrinfo; // 5) (srcport, srcip, destport, destip)
 
-  std:: queue<struct socket> accepted_queue; // 7) socket queue(accepted)
-  
-  std:: unordered_map<sockaddrinfo, struct socket> clientfd_map; // 8) key: (srcport, srcip, destport, destip)
-  std:: unordered_map<sockaddrinfo, struct socket> connfd_map; // 9) 
+    std:: queue<sockaddrinfo> pending_queue; // 6) socket queue
+
+    std:: queue<struct socket *> accepted_queue; // 7) socket queue(accepted)
+    
+    std:: unordered_map<sockaddrinfo, struct socket * > clientfd_map; // 8) key: (srcport, srcip, destport, destip)
+    std:: unordered_map<sockaddrinfo, struct socket * > connfd_map; // 9) 
 };
 
 //TODO: struct로 할지 class로 할지 고민해보기;
