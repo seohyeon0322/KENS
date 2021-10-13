@@ -15,9 +15,9 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+
 #include <unordered_map>
 #include <queue>
-#include <tuple>
 
 
 namespace E {
@@ -45,7 +45,6 @@ public:
   virtual void syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t addrlen);
   virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
   virtual void syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
-  virtual int packetflag(uint8_t flag);
 
 protected:
   virtual void systemCallback(UUID syscallUUID, int pid,
@@ -57,39 +56,43 @@ struct socket{ // 1) socket information
       int domain;
       int protocol;
       sa_family_t sin_family;
-      uint16_t src_port;
-      uint32_t src_ipaddr;
-      uint16_t dest_port;
-      uint32_t dest_ipaddr;
+      in_port_t src_port;
+      in_addr_t src_ipaddr;
+      in_port_t dest_port;
+      in_addr_t dest_ipaddr;
       sockaddr* src_addr;
       int bind = 0;
-      int state = 0;
-      //TODO: state = 0 for debugging;
+      int state = TCP_CLOSE;
   };
 
  struct PFDtable{ // 2) pid, fd->socket, (port, ip)
     int pid;
     std :: unordered_map<int, struct socket *> fdmap;
-    std:: set<std:: pair<uint16_t, uint32_t>> portippair;
+    std:: set<std:: pair<in_port_t, in_addr_t>> portippair;
   };
-
 
     std:: unordered_map<int, struct PFDtable *> pfdmap; // 3) pid -> PFDtable
 
-    std:: unordered_map<uint16_t, int> portmap; // 4) port to pid
+  // struct sockaddr{
+  //   struct socket * socketinfo;
+  //   std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t> addr;
+  // }
 
-    typedef std::tuple<uint16_t,uint32_t,uint16_t,uint32_t> sockaddrinfo; // 5) (srcport, srcip, destport, destip)
 
-    std:: queue<sockaddrinfo> pending_queue; // 6) socket queue
+    std:: unordered_map<in_port_t, int> portmap; // 4) port to pid
+
+
+    std:: queue<std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t>> pending_queue; // 6) socket queue
 
     std:: queue<struct socket *> accepted_queue; // 7) socket queue(accepted)
+
     
-    std:: unordered_map<sockaddrinfo, struct socket * > clientfd_map; // 8) key: (srcport, srcip, destport, destip)
-    std:: unordered_map<sockaddrinfo, struct socket * > connfd_map; // 9) 
+    std:: unordered_map<std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t>, struct socket *> clientfd_map; // 8) key: (srcport, srcip, destport, destip)
+    std:: unordered_map<std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t>, struct socket *> connfd_map; // 9) 
+
+    std:: queue<std::pair<struct socket *, int>> listenfd_map;
 };
 
-//TODO: struct로 할지 class로 할지 고민해보기;
-//socket datastructure;
 class TCPAssignmentProvider {
 private:
   TCPAssignmentProvider() {}
