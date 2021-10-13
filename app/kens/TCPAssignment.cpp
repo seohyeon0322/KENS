@@ -91,6 +91,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   size_t packet_size = 100, length = 20; // 기본 기준 length
   uint8_t tcp_seg[length];
   Packet pkt (packet_size);
+  struct socket *sock;
 
   // Extract Information of the packet
 
@@ -135,6 +136,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
       sendPacket("IPv4", std::move(pkt));
 
       // TODO: connfd socket state 바꾸기, while 문 같은 걸로 확인해야 하나?
+      // 여기에서 connfd를 만드는 게 맞겠지? 아니면 ack 받고 나서부터 connfd인가?
       sockaddrinfo connfdinfo = std::make_tuple(destport, destip, srcport, srcip);
       if(this -> connfd_map.find(connfdinfo) != this->connfd_map.end()){
         this->connfd_map[connfdinfo].state = SYN_RCVD;
@@ -144,8 +146,10 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
       // cleintfdmap에서 socket 데려오기
       // TODO: state SYN_SENT인지 확인
       sockaddrinfo clientfd_info = std::make_tuple(destport, destip, srcport, srcip);
-      if(this -> clientfd_map.find(clientfd_info) != this-> clientfd_map.end())
-        socket sock = clientfd_map[clientfd_info];
+      if(this -> clientfd_map.find(clientfd_info) == this-> clientfd_map.end())
+        // TODO: 뭔가 error
+      
+      *sock = clientfd_map[clientfd_info];
 
       // ACK 보내기
       memcpy(&acknum, &seqnum, 4);
@@ -163,21 +167,23 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
       sendPacket("IPv4", std::move(pkt));
  
       // state -> Established & Connect Return
-      sock.state = ESTABLISHED;
+      sock->state = ESTABLISHED;
       returnSystemCall(sock.SyscallUUID, 0);
 
     case ACK: // server-side
       // Socket 찾기
       sockaddrinfo connfd_info = std::make_tuple(destport, destip, srcport, srcip);
-      if(this -> connfd_map.find(connfd_info) != this-> connfd_map.end())
-        socket sock = connfd_map[connfd_info];
+      if(this -> connfd_map.find(connfd_info) == this-> connfd_map.end())
+        // TODO : error?
+      
+      *sock = connfd_map[connfd_info];
       
       // TODO: Accepted queue + pending Queue에서는 언제 삭제함?
       accepted_queue.push(sock);
 
       // TODO: Established & Accpet Return
-      sock.state = ESTABLISHED;
-      returnSystemCall(sock.SyscallUUID, 0);
+      sock->state = ESTABLISHED;
+      returnSystemCall(sock->SyscallUUID, 0);
 
     case FIN: // TODO
 

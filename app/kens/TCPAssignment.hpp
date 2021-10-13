@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <queue>
 #include <tuple>
+#include <E_RoutingInfo.hpp>
 
 #define CLOSEDSOCK 111 
 #define LISTENSOCK 112
