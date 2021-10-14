@@ -104,8 +104,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   int ip_header = 26;
   int tcp_header = 34;
   
-
-  // std::cout << "packet arrived" << std::endl;
   packet.readData(ip_header, &srcip, 4);
   packet.readData(ip_header+4, &destip, 4);
   packet.readData(tcp_header, &srcport, 2);
@@ -115,21 +113,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   packet.readData(tcp_header+13, &flag, 1);
   packet.readData(tcp_header+16, &checksum, 2);
   packet.readData(tcp_header, &tcp_seg, length);
-
-  // srcip = htonl(srcip);
-  // destip = htonl(destip);
-  // srcport = htons(srcport);
-  // destport = htons(destport);
-
-  // make checksum part -> zero
-  // compare checksum and calculated checksum
-  tcp_seg[16] = 0;
-  tcp_seg[17] = 0;
-  checksum_computed = NetworkUtil::tcp_sum(srcip, destip, tcp_seg, length);
-  checksum_computed = ~ checksum_computed;
-  checksum_computed = htons(checksum_computed);
-  if((checksum ^ checksum_computed) != 0)
-    return;
 
   // make checksum part -> zero
   // compare checksum and calculated checksum
@@ -142,7 +125,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
     return;
 
   // TODO: flag 따라 처리
-  // TODO: 원래 state 고려 안하고 맞다고 생각하고 짜놨는데, state 고려하기 (e.g. SYN_SENT 였을 때만 SYN_ACK 받아 처리)
+  // TODO: state 고려하기 (e.g. SYN_SENT 였을 때만 SYN_ACK 받아 처리)
   if (flag == TH_SYN){ //SYN
   // 1. using packet's destip/port, find listening socket.
   // 2. put addrinfo in pending_queue. 
@@ -292,6 +275,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int ty
     sock -> sin_family = AF_INET;
     sock -> domain = domain;
     sock -> protocol = protocol;
+    sock -> tcpinfo.tcpi_state = TCP_CLOSE;
 
     if(this->pfdmap.find(pid) == this->pfdmap.end()){
       struct PFDtable *pfd = new PFDtable;
@@ -333,81 +317,92 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
 
   socket *sock;
   ipv4_t dest_ip; // uint8_t array ipv4_t에서 바꿈
-  size_t packet_size = 100, length = 20;
+  size_t packet_size = 54, length = 20; // 54 is the minimum size of a packet
   Packet pkt (packet_size);
   uint8_t flag = TH_SYN;
-  uint16_t checksum_made;
-  uint32_t ack_num = 0, seq_num = 150000; // TODO: How to Select? Random?
-  uint8_t checksum_making[length] = {0,};
+  uint16_t checksum_made; // checksum that will be sent
+  uint32_t acknum = rand(), seqnum = rand();
+  uint8_t checksum_making[length] = {0,}; // used for checksum_made
+  int ip_header = 26, tcp_header = 34;
 
   if(this->pfdmap.find(pid) == this->pfdmap.end()){ // nonexisting pid -> error
+    returnSystemCall(syscallUUID, -1);
     return;
-  }else if(this->pfdmap[pid]->fdmap.find(fd) == this->pfdmap[pid]->fdmap.end()){ // nonexisting fd -> error
-    return;
+  }
+  if(this->pfdmap[pid]->fdmap.find(fd) == this->pfdmap[pid]->fdmap.end()){ // nonexisting fd -> error
+    returnSystemCall(syscallUUID, -1);
+    return; // There must be 2 returns
   }
 
   sock = this->pfdmap[pid]->fdmap[fd];
-  
-  if(sock->tcpinfo.tcpi_state != TCP_LISTEN) // weird client socket -> error
+
+  if(sock->tcpinfo.tcpi_state != TCP_CLOSE){ // The state of the socket must be LISTEN
+    returnSystemCall(syscallUUID, -1);
     return;
+  }
 
-  sockaddrinfo addrinfo = sock->sockaddrinfo;
+  // Given Destination Information
+  memcpy(&(sock->sockaddrinfo.dest_port), addr->sa_data, 2);
+  memcpy(&(sock->sockaddrinfo.dest_ipaddr), addr->sa_data+2, 4);
 
-  sock -> SyscallUUID = syscallUUID; // store UUID in socket for later return
-
-  // Given destination
-  memcpy(&(addrinfo.dest_port), addr->sa_data, 2);
-  memcpy(&(addrinfo.dest_ipaddr), addr->sa_data+2, 4);
-
-  // TODO: ip address 형식들 정리/변환하기 - ipv4_t, uint64_t, uint32_t, in_addr_t, ...
-  // Networkutil 함수 중, uint64_t <-> uint8_t array 있음
-
-  // ipv4_t(uint8_t array) destination ip 만들어주기 for getRoutingTable
-
-
+  // Dest IP for getRoutingTable
   memcpy(&dest_ip, addr->sa_data+2, 1);
   memcpy(&dest_ip+1, addr->sa_data+3, 1);
   memcpy(&dest_ip+2, addr->sa_data+4, 1);
   memcpy(&dest_ip+3, addr->sa_data+5, 1);
 
-  // TODO: Select local IP, port
-  // TODO: random number - port num 어디서부터 쓸 수 있음? How to Select?
-  addrinfo.src_port = htons(9999);
-  // TODO: +) htonl?
+  // Select Src IP & Port
+  sock -> sockaddrinfo.src_port = htons(rand());
+  int port = this -> getRoutingTable(dest_ip); // NIC port for getting src IP
+  ipv4_t sourceip = this -> getIPAddr(port).value(); // src ip (using value() due to optional<ipv4_t>)
+  sock -> sockaddrinfo.src_ipaddr = NetworkUtil::arrayToUINT64(sourceip);
 
+  // fill src_addr
+  struct sockaddr_in *newaddr = (struct sockaddr_in *) static_cast<struct sockaddr *>(sock->src_addr);
+  newaddr -> sin_family = AF_INET;
+  newaddr -> sin_addr.s_addr = sock->sockaddrinfo.src_ipaddr;
+  newaddr -> sin_port = htons(sock->sockaddrinfo.src_port);
+  // cf) memcpy X, maybe due to htons... etc
 
-  int port = this->getRoutingTable(dest_ip);
-  ipv4_t sourceip = this->getIPAddr(port).value();
-  sock->sockaddrinfo.src_ipaddr = NetworkUtil::arrayToUINT64(sourceip);
-
-  // sock -> src_addr 채우기(sockaddr*)
-  sock->sin_family = AF_INET;
-  sock->src_addr->sa_family = AF_INET;
-  memcpy(sock->src_addr->sa_data, &(addrinfo.src_port), 2);
-  memcpy(sock->src_addr->sa_data+2, &(addrinfo.src_ipaddr), 4);
-
-
-  sock -> bind = 1; // bound
-  sock -> tcpinfo.tcpi_state = TCP_SYN_SENT; // state 변환
-
-  this->clientfd_set.insert(sock);
-
-
-  // TODO: syn packet 보내기 - ip address 형식 확인, checksum 만들어서 넣어주기
-  pkt.writeData(0, &(addrinfo.src_ipaddr), 4);
-  pkt.writeData(4, &(addrinfo.dest_ipaddr), 4);
-  pkt.writeData(8, &(addrinfo.src_port), 2);
-  pkt.writeData(10, &(addrinfo.dest_port), 2);
-  pkt.writeData(12, &seq_num, 4); 
-  pkt.writeData(16, &ack_num, 4);
-  pkt.writeData(21, &flag, 1); // 2
-
+  // Packet
+  pkt.writeData(ip_header, &(sock->sockaddrinfo.src_ipaddr), 4);
+  pkt.writeData(ip_header+4, &(sock->sockaddrinfo.dest_ipaddr), 4);
+  std::cout<<"hi"<<std::endl;
   // make checksum
-  pkt.readData(8, &checksum_making, 14);
-  checksum_made = htons(~ NetworkUtil::tcp_sum(addrinfo.src_ipaddr, addrinfo.dest_ipaddr, checksum_making, length));
+  pkt.writeData(tcp_header, &(sock->sockaddrinfo.src_port), 2);
+  pkt.writeData(tcp_header+2, &(sock->sockaddrinfo.dest_port), 2);
+  pkt.writeData(tcp_header+4, &seqnum, 4);
+  pkt.writeData(tcp_header+8, &acknum, 4);
+  pkt.writeData(tcp_header+13, &flag, 1);
+  pkt.readData(tcp_header, &checksum_making, 14);
+  checksum_made = htons(~ NetworkUtil::tcp_sum(sock->sockaddrinfo.src_ipaddr,
+                          sock->sockaddrinfo.dest_ipaddr, checksum_making, length));
+  // warning: pkt can be overwritten.
 
-  pkt.writeData(24, &checksum_made, 2);
-  sendPacket("IPv4", std::move(pkt));
+  // Send Packet: SYN
+  struct tcphdr tcphdr;
+    tcphdr.th_sport = sock->sockaddrinfo.src_port;
+    tcphdr.th_dport = sock->sockaddrinfo.dest_port;
+    tcphdr.th_seq = seqnum;
+    tcphdr.th_ack = acknum;
+    tcphdr.th_flags = flag;
+    tcphdr.th_sum = checksum_made;
+    tcphdr.th_off = (uint8_t)5; // TODO ???
+
+  pkt.writeData(tcp_header, &tcphdr, 20);
+
+  void *temp_buf = malloc(pkt.getSize());
+  pkt.readData(0, temp_buf, pkt.getSize());
+
+  memcpy(&tcphdr, temp_buf+34, 20);
+
+  this->sendPacket("IPv4", std::move(pkt));
+
+  sock -> seqnum = seqnum; // Store seqnum
+  sock -> tcpinfo.tcpi_state = TCP_SYN_SENT; // Change State
+  sock -> SyscallUUID = syscallUUID; // Store UUID
+  sock -> bind = 1; // BOUND
+  this -> clientfd_set.insert(sock); // Insert to the clientfd set
 
 }
 
@@ -438,7 +433,6 @@ void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, struct soc
     //--> it is the same as client socket's dest ipaddr/port
     in_addr_t clientip = pending_queue.front()->src_ipaddr;
     in_port_t clientport = pending_queue.front()->src_port;
-
 
     //make connect socket
     struct socket * connsock  = new socket;
@@ -558,6 +552,40 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struc
 
 void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
 
+  socket* sock;
+  in_port_t peerport;
+  in_addr_t peerip;
+
+  if(this->pfdmap.find(pid) == this->pfdmap.end()){ // nonexisting pid
+    returnSystemCall(syscallUUID, -1); // error
+    return;
+  }
+  if(this->pfdmap[pid]->fdmap.find(fd) == this->pfdmap[pid]->fdmap.end()){ // nonexisting fd
+    returnSystemCall(syscallUUID, -1); // error
+    return;
+  }
+
+  sock = this->pfdmap[pid]->fdmap[fd];
+  addr->sa_family = AF_INET;
+
+  if((this->clientfd_set.find(sock) != this->clientfd_set.end()) // fd is clientfd
+      || (this->connfd_set.find(sock) != this->connfd_set.end())){ // fd is connfd
+
+      peerport = sock -> sockaddrinfo.dest_port;
+      peerip = sock -> sockaddrinfo.dest_ipaddr;
+
+      memcpy(addr->sa_data, &peerport, 2);
+      memcpy(addr->sa_data+2, &peerip, 4);
+      
+      addrlen = (socklen_t *)sizeof(* addr);
+
+      returnSystemCall(syscallUUID, 0);
+      return;
+    }
+
+  returnSystemCall(syscallUUID, -1); // error
+  return;
+  
 }
 
 } // namespace E

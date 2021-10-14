@@ -64,6 +64,7 @@ public:
         sockaddr* src_addr = NULL;
         int bind = 0;
         struct tcp_info tcpinfo;
+        uint32_t seqnum;
     };
 
   struct PFDtable{ // 2) pid, fd->socket, (port, ip)
