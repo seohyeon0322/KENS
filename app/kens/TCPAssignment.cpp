@@ -11,10 +11,9 @@
 #include <E/Networking/E_NetworkUtil.hpp>
 #include <E/Networking/E_Networking.hpp>
 #include <E/Networking/E_Packet.hpp>
-#include <cerrno>
+#include <cerrno> 
 
 namespace E {
-
 
 TCPAssignment::TCPAssignment(Host &host)
     : HostModule("TCP", host), RoutingInfoInterface(host),
@@ -25,7 +24,14 @@ TCPAssignment::~TCPAssignment() {}
 
 void TCPAssignment::initialize() {} // TODO 1
 
-void TCPAssignment::finalize() {} // TODO 2
+void TCPAssignment::finalize() {
+  // this->pfdmap.clear();
+  // this->portmap.clear();
+
+  // this->clientfd_set.clear();
+  // this->connfd_set.clear();
+  
+} // TODO 2
 
 void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
                                    const SystemCallParameter &param) {
@@ -85,18 +91,18 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 } 
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
-  uint32_t srcip, destip, seqnum, acknum;
-  uint16_t srcport, destport, checksum, checksum_computed;
+  in_addr_t srcip, destip, seqnum, acknum;
+  in_port_t srcport, destport;
+  uint16_t checksum, checksum_computed, checksum_made;
   uint8_t flag;
-  size_t packet_size = 100, length = 20; // 기본 기준 length
-  uint8_t tcp_seg[length];
+  size_t packet_size = 54, length = 20; // 기본 기준 length
+  uint8_t tcp_seg[length], checksum_making[length] = {0,};
   Packet pkt (packet_size);
-  struct socket *sock;
 
   // Extract Information of the packet
 
-  int ip_header = 14;
-  int tcp_header = ip_header + 12;
+  int ip_header = 26;
+  int tcp_header = ip_header + 8;
 
   packet.readData(ip_header, &srcip, 4);
   packet.readData(ip_header+4, &destip, 4);
@@ -108,23 +114,35 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   packet.readData(tcp_header+16, &checksum, 2);
   packet.readData(tcp_header, &tcp_seg, length);
 
-  // TODO: compare checksums
-  checksum_computed = ~NetworkUtil::tcp_sum(srcip, destip, tcp_seg, length);
-  // if(checksum != checksum_computed)
+  // srcip = htonl(srcip);
+  // destip = htonl(destip);
+  // srcport = htons(srcport);
+  // destport = htons(destport);
+
+  // make checksum part -> zero
+  // compare checksum and calculated checksum
+  tcp_seg[16] = 0;
+  tcp_seg[17] = 0;
+  checksum_computed = NetworkUtil::tcp_sum(srcip, destip, tcp_seg, length);
+  checksum_computed = ~ checksum_computed;
+  checksum_computed = htons(checksum_computed);
+  if((checksum ^ checksum_computed) != 0)
+    return;
+
 
   // TODO: flag 따라 처리
   // TODO: 원래 state 고려 안하고 맞다고 생각하고 짜놨는데, state 고려하기 (e.g. SYN_SENT 였을 때만 SYN_ACK 받아 처리)
-  switch(packetflag(flag)) {
-    case SYN: // server-side
-      // pendQ에 client socket 정보 넣기
-      sockaddrinfo pend_socket = std::make_tuple(srcport, srcip, destport, destip); // cli, server
-      pending_queue.push(pend_socket);
+  if (flag == TH_SYN){ //SYN
+      // pending_queue에 client socket 정보 넣기
+      auto pend_socket = std::make_tuple(srcport, srcip, destport, destip); // cli, server
+      pending_queue.push(pend_socket); 
     
       // syn ack 보내기
       memcpy(&acknum, &seqnum, 4);
       acknum++; // acknum = seqnum + 1
       seqnum = 305894; // TODO: how to select (Randomly)
-      flag = SYNACK;
+      flag = (TH_SYN|TH_ACK);
+
       pkt.writeData(0, &destip, 4); // src <-> dest (server2client니까)
       pkt.writeData(4, &srcip, 4);
       pkt.writeData(8, &destport, 2);
@@ -132,83 +150,81 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
       pkt.writeData(12, &seqnum, 4);
       pkt.writeData(16, &acknum, 4);
       pkt.writeData(21, &flag, 1);
-      pkt.writeData(24, &checksum, 2); // TODO: checksum 만들기
+
+      // make checksum
+      pkt.readData(8, &checksum_making, 14);
+      checksum_made = htons(~ NetworkUtil::tcp_sum(destip, srcip, checksum_making, length));
+
+      pkt.writeData(24, &checksum_made, 2);
       sendPacket("IPv4", std::move(pkt));
 
       // TODO: connfd socket state 바꾸기, while 문 같은 걸로 확인해야 하나?
-      // 여기에서 connfd를 만드는 게 맞겠지? 아니면 ack 받고 나서부터 connfd인가?
-      sockaddrinfo connfdinfo = std::make_tuple(destport, destip, srcport, srcip);
-      if(this -> connfd_map.find(connfdinfo) != this->connfd_map.end()){
-        this->connfd_map[connfdinfo].state = SYN_RCVD;
+
+
+      for(std::set<socket*>::iterator it = connfd_set.begin(); it!=connfd_set.end(); ++it){ //clientfd socket state 바꾸기
+        socket* sock = *it;  
+        if((sock->sockaddrinfo.src_port == destport) && (sock->sockaddrinfo.src_ipaddr == destip) 
+        && (sock->sockaddrinfo.dest_port == srcport) && (sock->sockaddrinfo.dest_ipaddr == srcip)){
+
+            sock->state = TCP_SYN_RECV;
+        }
       }
-      
-    case SYNACK: // cli-side
+
+  }else if (flag == (TH_SYN|TH_ACK)){ //SYN+ACK
       // cleintfdmap에서 socket 데려오기
       // TODO: state SYN_SENT인지 확인
-      sockaddrinfo clientfd_info = std::make_tuple(destport, destip, srcport, srcip);
-      if(this -> clientfd_map.find(clientfd_info) == this-> clientfd_map.end())
-        // TODO: 뭔가 error
+
+      for(std::set<socket*>::iterator it = connfd_set.begin(); it!=connfd_set.end(); ++it){
+        socket* sock = *it;  
+        if((sock->sockaddrinfo.src_port == destport) && (sock->sockaddrinfo.src_ipaddr == destip) 
+        && (sock->sockaddrinfo.dest_port == srcport) && (sock->sockaddrinfo.dest_ipaddr == srcip)){
+            if(sock->state == TCP_SYN_SENT){ //client_socket이 synsent인 경우에만 ack 보내기
+            memcpy(&acknum, &seqnum, 4);
+            acknum++; // acknum = seqnum + 1
+            seqnum = 305894; // TODO: how to select????
+            flag = TH_ACK; // 16
+            pkt.writeData(0, &destip, 4); // src <-> dest (server2client니까)
+            pkt.writeData(4, &srcip, 4);
+            pkt.writeData(8, &destport, 2);
+            pkt.writeData(10, &srcport, 2);
+            pkt.writeData(12, &seqnum, 4);
+            pkt.writeData(16, &acknum, 4);
+            pkt.writeData(21, &flag, 1);
+
+            // make checksum
+            pkt.readData(8, &checksum_making, 14);
+            checksum_made = htons(~ NetworkUtil::tcp_sum(destip, srcip, checksum_making, length));
+
+            pkt.writeData(24, &checksum_made, 2);
+            sendPacket("IPv4", std::move(pkt));
       
-      *sock = clientfd_map[clientfd_info];
+            // state -> Established & Connect Return
+            sock -> state = TCP_ESTABLISHED;
+            returnSystemCall(sock -> SyscallUUID, 0);
+          }
+          }
+        }
 
-      // ACK 보내기
-      memcpy(&acknum, &seqnum, 4);
-      acknum++; // acknum = seqnum + 1
-      seqnum = 305894; // TODO: how to select????
-      flag = ACK; // 16
-      pkt.writeData(0, &destip, 4); // src <-> dest (server2client니까)
-      pkt.writeData(4, &srcip, 4);
-      pkt.writeData(8, &destport, 2);
-      pkt.writeData(10, &srcport, 2);
-      pkt.writeData(12, &seqnum, 4);
-      pkt.writeData(16, &acknum, 4);
-      pkt.writeData(21, &flag, 1);
-      pkt.writeData(24, &checksum, 2); // TODO: checksum 만들기
-      sendPacket("IPv4", std::move(pkt));
- 
-      // state -> Established & Connect Return
-      sock->state = ESTABLISHED;
-      returnSystemCall(sock.SyscallUUID, 0);
-
-    case ACK: // server-side
+  }else if (flag == TH_ACK){
       // Socket 찾기
-      sockaddrinfo connfd_info = std::make_tuple(destport, destip, srcport, srcip);
-      if(this -> connfd_map.find(connfd_info) == this-> connfd_map.end())
-        // TODO : error?
-      
-      *sock = connfd_map[connfd_info];
-      
+      for(std::set<socket*>::iterator it = connfd_set.begin(); it!=connfd_set.end(); ++it){
+        socket* connsock = *it;  
+        if((connsock->sockaddrinfo.src_port == destport) && (connsock->sockaddrinfo.src_ipaddr == destip) 
+        && (connsock->sockaddrinfo.dest_port == srcport) && (connsock->sockaddrinfo.dest_ipaddr == srcip)){
+          if(connsock->state == TCP_SYN_RECV){
+            accepted_queue.push(connsock);
+
+            // TODO: Established & Accpet Return
+            connsock->state = TCP_ESTABLISHED;
+            pending_queue.pop();
+            returnSystemCall(connsock->SyscallUUID, 0); 
+          }
       // TODO: Accepted queue + pending Queue에서는 언제 삭제함?
-      accepted_queue.push(sock);
-
-      // TODO: Established & Accpet Return
-      sock->state = ESTABLISHED;
-      returnSystemCall(sock->SyscallUUID, 0);
-
-    case FIN: // TODO
-
-    case 0: // TODO - 뭐 더 있는지 몰라서 일단 만들어 놓음
+      }
+      }
+  }else if (flag == TH_FIN){
   }
-
-
 } // TODO 3
-
-int TCPAssignment::packetflag(uint8_t flag) {
-  int ack, syn, fin;
-  ack = (flag >> 4) & 1;
-  syn = (flag >> 1) & 1;
-  fin = flag & 1;
-
-  if(ack&syn)
-    return SYNACK;
-  if(syn)
-    return SYN;
-  if(ack)
-    return ACK;
-  if(fin)
-    return FIN;
-  return 0;
-}
 
 void TCPAssignment::timerCallback(std::any payload) {
   // Remove below
@@ -224,11 +240,14 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int ty
     int fd = this -> createFileDescriptor(pid);
 
     socket *sock = new socket;
+    // sock = (socket *)malloc(sizeof(socket));  // how to initialize?
+    sock -> fd = fd ; 
+    sock -> sin_family = AF_INET;
     sock -> domain = domain;
     sock -> protocol = protocol;
 
     if(this->pfdmap.find(pid) == this->pfdmap.end()){
-      pfd = new PFDtable;
+      struct PFDtable *pfd = new PFDtable;
       pfd -> pid = pid;
       pfdmap[pid] = pfd; 
     }
@@ -240,8 +259,10 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int ty
 
 }
 
+
 void TCPAssignment::syscall_close(UUID syscallUUID, int pid, int sockfd){
-  this->portmap.erase(this->pfdmap[pid]->fdmap[sockfd]->src_port);
+  this->portmap.erase(this->pfdmap[pid]->fdmap[sockfd]->sockaddrinfo.src_port);
+  // delete(this->pfdmap[pid]->fdmap[sockfd]);
   this->removeFileDescriptor(pid,sockfd);
   this->returnSystemCall(syscallUUID, 0);
 }
@@ -257,19 +278,32 @@ void TCPAssignment::syscall_write(UUID syscallUUID, int pid, int fd, void *buf, 
 void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct sockaddr* addr, socklen_t addrlen){
 
   socket *sock;
-  ipv4_t dest_ip; // uint8_t array
-  size_t packet_size = 100;
+  in_addr_t dest_ip; // uint8_t array ipv4_t에서 바꿈
+  size_t packet_size = 100, length = 20;
   Packet pkt (packet_size);
-  uint8_t flag = SYN;
-  uint16_t checksum;
+  uint8_t flag = TH_SYN;
+  uint16_t checksum_made;
   uint32_t ack_num = 0, seq_num = 150000; // TODO: How to Select? Random?
-  sock = this->pfdmap[pid]->fdmap[fd];
+  uint8_t checksum_making[length] = {0,};
 
-  sock -> SyscallUUID = syscallUUID; // socket에 UUID 저장(for return)
+  if(this->pfdmap.find(pid) == this->pfdmap.end()){ // nonexisting pid -> error
+    return;
+  }else if(this->pfdmap[pid]->fdmap.find(fd) == this->pfdmap[pid]->fdmap.end()){ // nonexisting fd -> error
+    return;
+  }
+
+  sock = this->pfdmap[pid]->fdmap[fd];
+  
+  if(sock->state != TCP_LISTEN) // weird client socket -> error
+    return;
+
+  sockaddrinfo addrinfo = sock->sockaddrinfo;
+
+  sock -> SyscallUUID = syscallUUID; // store UUID in socket for later return
 
   // Given destination
-  memcpy(&(sock->dest_port), addr->sa_data, 2);
-  memcpy(&(sock->dest_ipaddr), addr->sa_data+2, 4);
+  memcpy(&(addrinfo.dest_port), addr->sa_data, 2);
+  memcpy(&(addrinfo.dest_ipaddr), addr->sa_data+2, 4);
 
   // TODO: ip address 형식들 정리/변환하기 - ipv4_t, uint64_t, uint32_t, in_addr_t, ...
   // Networkutil 함수 중, uint64_t <-> uint8_t array 있음
@@ -282,36 +316,91 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
 
   // TODO: Select local IP, port
   // TODO: random number - port num 어디서부터 쓸 수 있음? How to Select?
-  sock -> src_port = htons(9999);
-  // TODO: getIPAddr 에러, +) htonl?
-  sock -> src_ipaddr = RoutingInfo::getIPAddr(getRoutingTable(dest_ip));
+  addrinfo.src_port = htons(9999);
+  // TODO: +) htonl?
+  ipv4_t new_src_ipaddr = this->getIPAddr(this->getRoutingTable((ipv4_t &)dest_ip)).value();
+  sock->sockaddrinfo.src_ipaddr = NetworkUtil::arrayToUINT64<4>(new_src_ipaddr);
 
   // sock -> src_addr 채우기(sockaddr*)
-  sock -> src_addr -> sa_family = AF_INET;
-  memcpy(sock->src_addr->sa_data, &(sock->src_port), 2);
-  memcpy(sock->src_addr->sa_data+2, &(sock->src_addr), 4);
+  sock->sin_family = AF_INET;
+  sock->src_addr->sa_family = AF_INET;
+  memcpy(sock->src_addr->sa_data, &(addrinfo.src_port), 2);
+  memcpy(sock->src_addr->sa_data+2, &(addrinfo.src_ipaddr), 4);
+
 
   sock -> bind = 1; // bound
-  sock -> state = SYN_SENT; // state 변환
+  sock -> state = TCP_SYN_SENT; // state 변환
+
+  this->clientfd_set.insert(sock);
+
 
   // TODO: syn packet 보내기 - ip address 형식 확인, checksum 만들어서 넣어주기
-  pkt.writeData(0, &(sock->src_ipaddr), 4);
-  pkt.writeData(4, &(sock->dest_ipaddr), 4);
-  pkt.writeData(8, &(sock->src_port), 2);
-  pkt.writeData(10, &(sock->dest_port), 2);
+  pkt.writeData(0, &(addrinfo.src_ipaddr), 4);
+  pkt.writeData(4, &(addrinfo.dest_ipaddr), 4);
+  pkt.writeData(8, &(addrinfo.src_port), 2);
+  pkt.writeData(10, &(addrinfo.dest_port), 2);
   pkt.writeData(12, &seq_num, 4); 
   pkt.writeData(16, &ack_num, 4);
   pkt.writeData(21, &flag, 1); // 2
-  pkt.writeData(24, &checksum, 2);
+
+  // make checksum
+  pkt.readData(8, &checksum_making, 14);
+  checksum_made = htons(~ NetworkUtil::tcp_sum(addrinfo.src_ipaddr, addrinfo.dest_ipaddr, checksum_making, length));
+
+  pkt.writeData(24, &checksum_made, 2);
   sendPacket("IPv4", std::move(pkt));
+
 }
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog){
-
+  socket* listensock = this->pfdmap[pid]->fdmap[fd];
+  if ((int)pending_queue.size() <= backlog){
+      listenfd_map.push(std::make_pair(listensock, backlog));
+      this->returnSystemCall(syscallUUID, 0);
+      return;
+  }
+    this->returnSystemCall(syscallUUID, -1);
 }
 
 void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
+  //connfdmap에 넣어주기
+  struct socket * listensock = this->pfdmap[pid]->fdmap[fd];
+  struct socket * connsock  = new socket;
+  struct sockaddrinfo listenaddrinfo = listensock->sockaddrinfo;
+  //TODO: connsock fd 값 만들어주기 ..... fighitng seohyeon ...
+  in_port_t port; //TODO : type 맞추기
+  in_addr_t ipaddr;
+  memcpy(&port, addr->sa_data, 2);
+  memcpy(&ipaddr, addr->sa_data+2, 4);
 
+
+  //   for(std::set<socket*>::iterator it = clientfd_set.begin(); it!=clientfd_set.end(); ++it){
+  //   socket* connsock = *it;  
+  //   if((connsock->sockaddrinfo.src_port == destport) && (connsock->sockaddrinfo.src_ipaddr == destip) 
+  //   && (connsock->sockaddrinfo.dest_port == srcport) && (connsock->sockaddrinfo.dest_ipaddr == srcip)){
+
+  //       sock->state = TCP_SYN_RECV;
+  //   }
+  // }
+
+  int connfd = this -> createFileDescriptor(pid);
+  PFDtable *pfd = this->pfdmap[pid];
+  pfd->fdmap.insert({connfd, connsock});
+
+  connsock -> fd = connfd;
+  connsock -> SyscallUUID = syscallUUID;
+  connsock -> domain = listensock -> domain;
+  connsock -> protocol = listensock -> protocol;
+  connsock -> sockaddrinfo.src_port = listenaddrinfo.src_port;
+  connsock -> sockaddrinfo.src_ipaddr = listenaddrinfo.src_ipaddr;
+  connsock -> bind = 1; 
+  connsock -> sin_family = listensock -> sin_family;
+  connsock-> sockaddrinfo.dest_port = port;
+  connsock-> sockaddrinfo.dest_ipaddr = ipaddr;
+  connsock->src_addr = listensock ->src_addr;
+  connsock -> state = TCP_LISTEN;
+
+  connfd_set.insert(connsock);
 }
 
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t addrlen){
@@ -321,40 +410,54 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct socka
       in_port_t port;
       in_addr_t ipaddr;
 
-      if(this->pfdmap.find(pid) == this->pfdmap.end()) //pid 없으면 error
+      if(this->pfdmap.find(pid) == this->pfdmap.end()) {//pid 없으면 error
         this->returnSystemCall(syscallUUID, -1);
+        return;
+      }
 
       pfd = this->pfdmap[pid];
 
-      if(pfd->fdmap.find(fd) == pfd->fdmap.end()) //fd 없으면 error
+      if(pfd->fdmap.find(fd) == pfd->fdmap.end()){ //fd 없으면 error
         this->returnSystemCall(syscallUUID, -1);
+        return;
+      }
 
       sock = pfd->fdmap[fd]; 
 
-      if(sock->bind == 1) // socket already bound -> error
+      if(sock->bind == 1){ // socket already bound -> error
         this->returnSystemCall(syscallUUID, -1);
+        return;
+      }
 
       sock->sin_family = AF_INET;
       memcpy(&port, addr->sa_data, 2);
-      memcpy(&ipaddr, addr->sa_data+2, 4);
+      memcpy(&ipaddr, addr->sa_data+2, 4); //debug: 여기서 ip_addr 0 나옴
 
       if(this -> portmap.find(port) != this -> portmap.end()){ // port가 이미 쓰이는지
-        if(this->portmap[port] != pid) // 다른 process에서 이미 쓰이는 port -> error
+        if(this->portmap[port] != pid) {// 다른 process에서 이미 쓰이는 port -> error
           this -> returnSystemCall(syscallUUID, -1);
-        if(((this->pfdmap[pid])->portippair).find({port, ipaddr}) != (this->pfdmap[pid])->portippair.end()) // 같은 process 같은 (ip, port) -> error
+          return;
+        }
+        if(((this->pfdmap[pid])->portippair).find({port, ipaddr}) != (this->pfdmap[pid])->portippair.end()) {// 같은 process 같은 (ip, port) -> error
           this -> returnSystemCall(syscallUUID, -1);
-        if(((this->pfdmap[pid])->portippair).find({port, INADDR_ANY}) != (this->pfdmap[pid])->portippair.end()) // 같은 process 같은 (ip, port) -> error
+          return;
+        }
+        if(((this->pfdmap[pid])->portippair).find({port, INADDR_ANY}) != (this->pfdmap[pid])->portippair.end()){ // 같은 process 같은 (ip, port) -> error
           this -> returnSystemCall(syscallUUID, -1);
-        if((this -> portmap[port] == pid) && (ipaddr == INADDR_ANY))
+          return;
+        }
+        if((this -> portmap[port] == pid) && (ipaddr == INADDR_ANY)){
           this -> returnSystemCall(syscallUUID, -1);
+          return;
+        }
         // TODO: (ip, port) 들어오고 (ANY, port) 들어오는 경우도 고려해줘야 하지 않나?
       }
 
-      sock->src_port = port;
-      sock->src_ipaddr = ipaddr;
-
+      sock->sockaddrinfo.src_port = port;
+      sock->sockaddrinfo.src_ipaddr = ipaddr;
       sock->src_addr = addr;
       sock->bind = 1;
+
 
       this->pfdmap[pid]->portippair.insert({port, ipaddr});
       this->portmap.insert({port, pid});
@@ -365,13 +468,15 @@ void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct socka
 }
 
 void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
-      if(pfdmap.find(pid) == pfdmap.end()) //pid 없는 경우
+      if(this->pfdmap.find(pid) == this->pfdmap.end()) {//pid 없는 경우
         this -> returnSystemCall(syscallUUID, -1);
-      
-      if((pfdmap[pid] -> fdmap).find(fd) == (pfdmap[pid] -> fdmap).end()) // fd 없는 경우
+        return;
+      }
+      if((this->pfdmap[pid] -> fdmap).find(fd) == (this->pfdmap[pid] -> fdmap).end()) {// fd 없는 경우
         this -> returnSystemCall(syscallUUID, -1);
-      
-      sockaddr* getaddr = pfdmap[pid] -> fdmap[fd] -> src_addr; 
+        return;
+      }
+      sockaddr* getaddr = this->pfdmap[pid] -> fdmap[fd] -> src_addr; 
       addr->sa_family = AF_INET;
       memcpy(&addr->sa_data, getaddr->sa_data, 14);
       addrlen = (socklen_t *)sizeof(* addr);
@@ -382,6 +487,5 @@ void TCPAssignment::syscall_getsockname(UUID syscallUUID, int pid, int fd, struc
 void TCPAssignment::syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
 
 }
-// TODO: So many Errors.... 디버깅조차 못해...
 
 } // namespace E
