@@ -129,7 +129,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   if((checksum ^ checksum_computed) != 0)
     return;
 
-
   // TODO: flag 따라 처리
   // TODO: 원래 state 고려 안하고 맞다고 생각하고 짜놨는데, state 고려하기 (e.g. SYN_SENT 였을 때만 SYN_ACK 받아 처리)
   if (flag == TH_SYN){ //SYN
@@ -159,7 +158,6 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
       sendPacket("IPv4", std::move(pkt));
 
       // TODO: connfd socket state 바꾸기, while 문 같은 걸로 확인해야 하나?
-
 
       for(std::set<socket*>::iterator it = connfd_set.begin(); it!=connfd_set.end(); ++it){ //clientfd socket state 바꾸기
         socket* sock = *it;  
@@ -214,14 +212,14 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
           if(connsock->state == TCP_SYN_RECV){
             accepted_queue.push(connsock);
 
-            // TODO: Established & Accpet Return
+            // Established & Accpet Return
             connsock->state = TCP_ESTABLISHED;
             pending_queue.pop();
             returnSystemCall(connsock->SyscallUUID, 0); 
           }
-      // TODO: Accepted queue + pending Queue에서는 언제 삭제함?
       }
       }
+
   }else if (flag == TH_FIN){
   }
 } // TODO 3
@@ -318,7 +316,8 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
   // TODO: random number - port num 어디서부터 쓸 수 있음? How to Select?
   addrinfo.src_port = htons(9999);
   // TODO: +) htonl?
-  ipv4_t new_src_ipaddr = this->getIPAddr(this->getRoutingTable((ipv4_t &)dest_ip)).value();
+  ipv4_t new_src_ipaddr;
+  // ipv4_t new_src_ipaddr = this->getIPAddr(this->getRoutingTable((ipv4_t &)dest_ip)).value();
   sock->sockaddrinfo.src_ipaddr = NetworkUtil::arrayToUINT64<4>(new_src_ipaddr);
 
   // sock -> src_addr 채우기(sockaddr*)
