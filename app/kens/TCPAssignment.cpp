@@ -271,6 +271,7 @@ void TCPAssignment::syscall_socket(UUID syscallUUID, int pid, int domain, int ty
     sock -> sin_family = AF_INET;
     sock -> domain = domain;
     sock -> protocol = protocol;
+    sock -> tcpinfo.tcpi_state = TCP_CLOSE;
 
     if(this->pfdmap.find(pid) == this->pfdmap.end()){
       struct PFDtable *pfd = new PFDtable;
@@ -324,7 +325,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
 
   sock = this->pfdmap[pid]->fdmap[fd];
 
-  if(sock->tcp_info.tcpi_state != TCP_LISTEN){ // The state of the socket must be LISTEN
+  if(sock->tcpinfo.tcpi_state != TCP_CLOSE){ // The state of the socket must be LISTEN
     returnSystemCall(syscallUUID, -1);
     return;
   }
@@ -346,13 +347,16 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
   sock -> sockaddrinfo.src_ipaddr = NetworkUtil::arrayToUINT64(sourceip);
 
   // fill src_addr
-  memcpy(sock->src_addr->sa_data, &(sock->sockaddrinfo.src_port), 2);
-  memcpy(sock->src_addr->sa_data+2, &(sock->sockaddrinfo.src_ipaddr), 4);
+  struct sockaddr_in *newaddr = (struct sockaddr_in *) static_cast<struct sockaddr *>(sock->src_addr);
+  newaddr -> sin_family = AF_INET;
+  newaddr -> sin_addr.s_addr = sock->sockaddrinfo.src_ipaddr;
+  newaddr -> sin_port = htons(sock->sockaddrinfo.src_port);
+  // cf) memcpy X, maybe due to htons... etc
 
   // Packet
   pkt.writeData(ip_header, &(sock->sockaddrinfo.src_ipaddr), 4);
   pkt.writeData(ip_header+4, &(sock->sockaddrinfo.dest_ipaddr), 4);
-
+  std::cout<<"hi"<<std::endl;
   // make checksum
   pkt.writeData(tcp_header, &(sock->sockaddrinfo.src_port), 2);
   pkt.writeData(tcp_header+2, &(sock->sockaddrinfo.dest_port), 2);
@@ -384,7 +388,7 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
   this->sendPacket("IPv4", std::move(pkt));
 
   sock -> seqnum = seqnum; // Store seqnum
-  sock -> tcp_info.tcpi_state = TCP_SYN_SENT; // Change State
+  sock -> tcpinfo.tcpi_state = TCP_SYN_SENT; // Change State
   sock -> SyscallUUID = syscallUUID; // Store UUID
   sock -> bind = 1; // BOUND
   this -> clientfd_set.insert(sock); // Insert to the clientfd set
@@ -406,44 +410,52 @@ void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlo
 }
 
 void TCPAssignment::syscall_accept(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen){
+  //pid, fd -> listening socket.
+  // make connfd & put client's address into struct sockaddr * addr
   //connfdmap에 넣어주기
   struct socket * listensock = this->pfdmap[pid]->fdmap[fd];
-  struct socket * connsock  = new socket;
   struct sockaddrinfo listenaddrinfo = listensock->sockaddrinfo;
-  //TODO: connsock fd 값 만들어주기 ..... fighitng seohyeon ...
-  in_port_t port; //TODO : type 맞추기
-  in_addr_t ipaddr;
-  memcpy(&port, addr->sa_data, 2);
-  memcpy(&ipaddr, addr->sa_data+2, 4);
+  std:: queue<struct sockaddrinfo *> pending_queue = this->listenfd_map[listensock]->pending_queue;
+  if (!pending_queue.empty()){
+    //find clientsocket
+    //we have listensock src ipaddr/port. 
+    //--> it is the same as client socket's dest ipaddr/port
+    in_addr_t clientip = pending_queue.front()->src_ipaddr;
+    in_port_t clientport = pending_queue.front()->src_port;
 
+    //make connect socket
+    struct socket * connsock  = new socket;
+    int connfd = this -> createFileDescriptor(pid);
+    PFDtable *pfd = this->pfdmap[pid];
+    pfd->fdmap.insert({connfd, connsock});
 
-  //   for(std::set<socket*>::iterator it = clientfd_set.begin(); it!=clientfd_set.end(); ++it){
-  //   socket* connsock = *it;  
-  //   if((connsock->sockaddrinfo.src_port == destport) && (connsock->sockaddrinfo.src_ipaddr == destip) 
-  //   && (connsock->sockaddrinfo.dest_port == srcport) && (connsock->sockaddrinfo.dest_ipaddr == srcip)){
+    //add info to connsock
+    connsock -> fd = connfd;
+    connsock -> SyscallUUID = syscallUUID;
+    connsock -> domain = listensock -> domain;
+    connsock -> protocol = listensock -> protocol;
+    connsock -> sockaddrinfo.src_port = listenaddrinfo.src_port;
+    connsock -> sockaddrinfo.src_ipaddr = listenaddrinfo.src_ipaddr;
+    connsock -> bind = 1; 
+    connsock -> sin_family = AF_INET;
+    connsock-> sockaddrinfo.dest_port = clientport;
+    connsock-> sockaddrinfo.dest_ipaddr = clientip;
+    connsock-> src_addr = listensock ->src_addr;
+    connsock -> tcpinfo.tcpi_state = TCP_LISTEN;
 
-  //       sock->state = TCP_SYN_RECV;
-  //   }
-  // }
-
-  int connfd = this -> createFileDescriptor(pid);
-  PFDtable *pfd = this->pfdmap[pid];
-  pfd->fdmap.insert({connfd, connsock});
-
-  connsock -> fd = connfd;
-  connsock -> SyscallUUID = syscallUUID;
-  connsock -> domain = listensock -> domain;
-  connsock -> protocol = listensock -> protocol;
-  connsock -> sockaddrinfo.src_port = listenaddrinfo.src_port;
-  connsock -> sockaddrinfo.src_ipaddr = listenaddrinfo.src_ipaddr;
-  connsock -> bind = 1; 
-  connsock -> sin_family = listensock -> sin_family;
-  connsock-> sockaddrinfo.dest_port = port;
-  connsock-> sockaddrinfo.dest_ipaddr = ipaddr;
-  connsock->src_addr = listensock ->src_addr;
-  connsock -> state = TCP_LISTEN;
-
-  connfd_set.insert(connsock);
+    //save addr
+    struct sockaddr_in *newaddr = (struct sockaddr_in *)static_cast<struct sockaddr *>(addr);
+    newaddr -> sin_family = AF_INET;
+    newaddr -> sin_addr.s_addr = clientip;
+    newaddr -> sin_port = htons(clientport);
+    
+    pending_queue.pop();
+    this->listenfd_map[listensock]->pending_queue = pending_queue;
+    connfd_set.insert(connsock);
+    this->returnSystemCall(syscallUUID, connsock->fd);
+    return;
+  }
+  this->returnSystemCall(syscallUUID, -1);
 }
 
 void TCPAssignment::syscall_bind(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t addrlen){

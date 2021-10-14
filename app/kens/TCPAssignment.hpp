@@ -64,7 +64,7 @@ public:
         sockaddr* src_addr = NULL;
         int bind = 0;
         int state = TCP_CLOSE;
-        struct tcp_info tcp_info;
+        struct tcp_info tcpinfo;
         uint32_t seqnum;
     };
 
