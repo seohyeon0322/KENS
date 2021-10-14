@@ -92,11 +92,12 @@ void TCPAssignment::systemCallback(UUID syscallUUID, int pid,
 
 void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   in_addr_t srcip, destip, seqnum, acknum;
-  in_port_t srcport, destport, checksum, checksum_computed;
+  in_port_t srcport, destport;
+  uint16_t checksum, checksum_computed, checksum_made;
   uint8_t flag;
   size_t packet_size = 54, length = 20; // 기본 기준 length
-  uint8_t tcp_seg[length];
-  Packet pkt(packet_size);
+  uint8_t tcp_seg[length], checksum_making[length] = {0,};
+  Packet pkt (packet_size);
 
   // Extract Information of the packet
 
@@ -115,6 +116,20 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
   packet.readData(tcp_header+16, &checksum, 2);
   packet.readData(tcp_header, &tcp_seg, length);
 
+  // srcip = htonl(srcip);
+  // destip = htonl(destip);
+  // srcport = htons(srcport);
+  // destport = htons(destport);
+
+  // make checksum part -> zero
+  // compare checksum and calculated checksum
+  tcp_seg[16] = 0;
+  tcp_seg[17] = 0;
+  checksum_computed = NetworkUtil::tcp_sum(srcip, destip, tcp_seg, length);
+  checksum_computed = ~ checksum_computed;
+  checksum_computed = htons(checksum_computed);
+  if((checksum ^ checksum_computed) != 0)
+    return;
 
   // make checksum part -> zero
   // compare checksum and calculated checksum
@@ -139,7 +154,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
     clisockaddr->dest_port = destport;
     clisockaddr->dest_ipaddr = destip;
 
-    //finding listensocket
+    //finding listensooket
     for(it = listenfd_map.begin(); it!=listenfd_map.end(); ++it){ //clientfd socket state 바꾸기
       socket* listensocket = it -> first; 
       if(((listensocket->sockaddrinfo.src_port == destport) && (listensocket->sockaddrinfo.src_ipaddr == destip))
@@ -154,13 +169,23 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
         pkt.writeData(ip_header, &destip, 4); // src <-> dest (server2client니까)
         pkt.writeData(ip_header+4, &srcip, 4);
 
+        // make checksum
+        pkt.writeData(tcp_header, &destport, 2);
+        pkt.writeData(tcp_header+2, &srcport, 2);
+        pkt.writeData(tcp_header+4, &seqnum, 4);
+        pkt.writeData(tcp_header+8, &acknum, 4);
+        pkt.writeData(tcp_header+13, &flag, 1);
+        pkt.readData(tcp_header, &checksum_making, 14);
+        checksum_made = htons(~ NetworkUtil::tcp_sum(destip, srcip, checksum_making, length));
+        // warning: pkt can be overwritten.
+
         struct tcphdr tcphdr;
           tcphdr.th_sport = destport;
           tcphdr.th_dport = srcport;
           tcphdr.th_seq = seqnum;
           tcphdr.th_ack = acknum;
           tcphdr.th_flags = flag;
-          tcphdr.th_sum = checksum;
+          tcphdr.th_sum = checksum_made;
           tcphdr.th_off = (uint8_t)5;
 
         pkt.writeData(tcp_header, &tcphdr, 20);
@@ -170,21 +195,11 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 
         memcpy(&tcphdr, temp_buf+34, 20);
 
-
-
-        // pkt.writeData(tcp_header, &destport, 2);
-        // pkt.writeData(tcp_header+2, &srcport, 2);
-        // pkt.writeData(tcp_header+4, &seqnum, 4);
-        // pkt.writeData(tcp_header+8, &acknum, 4);
-        // pkt.writeData(tcp_header+13, &flag, 1);
-        // pkt.writeData(tcp_header+15, &checksum, 2); // TODO: checksum 만들기
-        // std:: cout<<"before send packet" <<std::endl;
-
         this->sendPacket("IPv4", std::move(pkt));
         // std:: cout<< "after send packet" << std::endl;
 
+        }
       }
-    }  
     }else if (flag == (TH_SYN|TH_ACK)){ //SYN+ACK
       // cleintfdmap에서 socket 데려오기
       // TODO: state SYN_SENT인지 확인
@@ -198,15 +213,36 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
             acknum++; // acknum = seqnum + 1
             seqnum = 305894; // TODO: how to select????
             flag = TH_ACK; // 16
-        pkt.writeData(ip_header, &destip, 4); // src <-> dest (server2client니까)
-        pkt.writeData(ip_header+4, &srcip, 4);
-        pkt.writeData(tcp_header, &destport, 2);
-        pkt.writeData(tcp_header+2, &srcport, 2);
-        pkt.writeData(tcp_header+4, &seqnum, 4);
-        pkt.writeData(tcp_header+8, &acknum, 4);
-        pkt.writeData(tcp_header+13, &flag, 1);
-        pkt.writeData(tcp_header+15, &checksum, 2); // TODO: checksum 만들기
-            sendPacket("IPv4", std::move(pkt));
+            pkt.writeData(ip_header, &destip, 4); // src <-> dest (server2client니까)
+            pkt.writeData(ip_header+4, &srcip, 4);
+
+            // make checksum
+            pkt.writeData(tcp_header, &destport, 2);
+            pkt.writeData(tcp_header+2, &srcport, 2);
+            pkt.writeData(tcp_header+4, &seqnum, 4);
+            pkt.writeData(tcp_header+8, &acknum, 4);
+            pkt.writeData(tcp_header+13, &flag, 1);
+            pkt.readData(tcp_header, &checksum_making, 14);
+            checksum_made = htons(~ NetworkUtil::tcp_sum(destip, srcip, checksum_making, length));
+            // warning: pkt can be overwritten.
+
+            struct tcphdr tcphdr;
+              tcphdr.th_sport = destport;
+              tcphdr.th_dport = srcport;
+              tcphdr.th_seq = seqnum;
+              tcphdr.th_ack = acknum;
+              tcphdr.th_flags = flag;
+              tcphdr.th_sum = checksum_made;
+              tcphdr.th_off = (uint8_t)5;
+
+            pkt.writeData(tcp_header, &tcphdr, 20);
+
+            void *temp_buf = malloc(pkt.getSize());
+            pkt.readData(0, temp_buf, pkt.getSize());
+
+            memcpy(&tcphdr, temp_buf+34, 20);
+
+            this->sendPacket("IPv4", std::move(pkt));
       
             // state -> Established & Connect Return
             sock -> state = TCP_ESTABLISHED;
@@ -234,7 +270,7 @@ void TCPAssignment::packetArrived(std::string fromModule, Packet &&packet) {
 //       }
 //       }
   } // TODO 3
-
+  
 void TCPAssignment::timerCallback(std::any payload) {
   // Remove below
   (void)payload;
@@ -287,15 +323,27 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
 
   socket *sock;
   ipv4_t dest_ip; // uint8_t array ipv4_t에서 바꿈
-  size_t packet_size = 100;
+  size_t packet_size = 100, length = 20;
   Packet pkt (packet_size);
   uint8_t flag = TH_SYN;
-  uint16_t checksum;
+  uint16_t checksum_made;
   uint32_t ack_num = 0, seq_num = 150000; // TODO: How to Select? Random?
+  uint8_t checksum_making[length] = {0,};
+
+  if(this->pfdmap.find(pid) == this->pfdmap.end()){ // nonexisting pid -> error
+    return;
+  }else if(this->pfdmap[pid]->fdmap.find(fd) == this->pfdmap[pid]->fdmap.end()){ // nonexisting fd -> error
+    return;
+  }
+
   sock = this->pfdmap[pid]->fdmap[fd];
+  
+  if(sock->state != TCP_LISTEN) // weird client socket -> error
+    return;
+
   sockaddrinfo addrinfo = sock->sockaddrinfo;
 
-  sock -> SyscallUUID = syscallUUID; // socket에 UUID 저장(for return)
+  sock -> SyscallUUID = syscallUUID; // store UUID in socket for later return
 
   // Given destination
   memcpy(&(addrinfo.dest_port), addr->sa_data, 2);
@@ -343,8 +391,14 @@ void TCPAssignment::syscall_connect(UUID syscallUUID, int pid, int fd, struct so
   pkt.writeData(12, &seq_num, 4); 
   pkt.writeData(16, &ack_num, 4);
   pkt.writeData(21, &flag, 1); // 2
-  pkt.writeData(24, &checksum, 2);
+
+  // make checksum
+  pkt.readData(8, &checksum_making, 14);
+  checksum_made = htons(~ NetworkUtil::tcp_sum(addrinfo.src_ipaddr, addrinfo.dest_ipaddr, checksum_making, length));
+
+  pkt.writeData(24, &checksum_made, 2);
   sendPacket("IPv4", std::move(pkt));
+
 }
 
 void TCPAssignment::syscall_listen(UUID syscallUUID, int pid, int fd, int backlog){
