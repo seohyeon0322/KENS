@@ -18,6 +18,7 @@
 
 #include <unordered_map>
 #include <queue>
+#include <bitset>
 
 
 namespace E {
@@ -46,21 +47,21 @@ public:
   virtual void syscall_getsockname(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
   virtual void syscall_getpeername(UUID syscallUUID, int pid, int fd, struct sockaddr *addr, socklen_t *addrlen);
 
-
   struct sockaddrinfo{
-        in_port_t src_port;
-        in_addr_t src_ipaddr;
-        in_port_t dest_port;
-        in_addr_t dest_ipaddr;
+        in_port_t src_port = 0;
+        in_addr_t src_ipaddr = 0;
+        in_port_t dest_port = 0;
+        in_addr_t dest_ipaddr = 0;
     };
     
   struct socket{ // 1) socket information
-        UUID SyscallUUID;
-        int domain;
-        int protocol;
+        int fd;
+        UUID SyscallUUID = 0;
+        int domain = 0;
+        int protocol = 0;
         sa_family_t sin_family;
         struct sockaddrinfo sockaddrinfo;
-        sockaddr* src_addr;
+        sockaddr* src_addr = NULL;
         int bind = 0;
         int state = TCP_CLOSE;
     };
@@ -71,13 +72,29 @@ public:
       std:: set<std:: pair<in_port_t, in_addr_t>> portippair;
     };
 
+  struct pending_backlog{ //for saving backlog, pendingqueue. (We have pendingqueue per listenfd.)
+    int backlog;
+    std:: queue<struct sockaddrinfo *> pending_queue;
+  };
+    std:: unordered_map<socket*, pending_backlog*> listenfd_map; // map socket(listen_socket) with pending_queue(with backlog)
+
+  //pending_backlog & listenfd
+  // 1. make listenfd_map in listen()
+  // 2. in packet_arrived(), using packet's destip/port, find listening socket.
+  // 3. put clientsocket in pending_queue. (find socket in clientfd_set.)
+  // 4. change clientsocket's state.
+
+    //this is for saving clientsocket -> in accept(socket, &addr, len) we have to put address information to &addr. 
+    //1. find clientsocket in pendingqueue. we can use pop() 
+    //2. socket structure have sockaddrinfo -> find src ip/port, dest ip/port -> put in &addr
+
+
+
       std:: unordered_map<int, struct PFDtable *> pfdmap; // 3) pid -> PFDtable
 
 
       std:: unordered_map<in_port_t, int> portmap; // 4) port to pid
 
-
-      std:: queue<std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t>> pending_queue; // 6) socket queue
 
       std:: queue<struct socket *> accepted_queue; // 7) socket queue(accepted)
 
@@ -87,7 +104,7 @@ public:
       // std:: unordered_map<std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t>, struct socket *> clientfd_map; // 8) key: (srcport, srcip, destport, destip)
       // std:: unordered_map<std::tuple<in_port_t,in_addr_t,in_port_t,in_addr_t>, struct socket *> connfd_map; // 9) 
 
-      std:: queue<std::pair<struct socket *, int>> listenfd_map;
+
 
 
 protected:
